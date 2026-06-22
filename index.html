@@ -188,6 +188,9 @@
   .songitem .si-diff{font-size:10px;text-transform:uppercase;letter-spacing:.5px;padding:3px 7px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
   .songitem .si-diff.let{color:var(--lime);border-color:var(--lime)}
   .songitem .si-diff.mel{color:var(--amber);border-color:var(--amber)}
+  .songitem .si-star{font-size:20px;line-height:1;cursor:pointer;color:var(--muted);user-select:none;padding:2px 4px;transition:.12s}
+  .songitem .si-star.on{color:var(--amber);text-shadow:0 0 8px rgba(255,182,72,.5)}
+  .songitem .si-star:hover{transform:scale(1.2)}
   .songcat{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:10px 0 2px}
   .songview-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
   .songview-head .sv-title{font-size:20px;font-weight:800}
@@ -515,7 +518,16 @@ I'm gonna let it [C]shine</textarea>
       <input type="text" id="authEmail" placeholder="email" style="width:100%;margin-bottom:8px">
       <input type="password" id="authPass" placeholder="adgangskode" style="width:100%;margin-bottom:8px">
       <div class="row"><button class="primary" id="btnLogin">Log ind</button><button id="btnSignup">Opret konto</button></div>
+      <div class="row" style="margin-top:8px"><button id="btnForgot" style="padding:6px 12px;font-size:13px">Glemt adgangskode?</button></div>
       <div class="hint" id="authMsg" style="margin-top:8px"></div>
+    </div>
+
+    <div class="panel" id="cloudReset" style="display:none">
+      <h3>Vælg ny adgangskode</h3>
+      <p class="hint" style="margin-bottom:10px">Du kom hertil via nulstil-linket. Indtast din nye adgangskode.</p>
+      <input type="password" id="newPass" placeholder="ny adgangskode (min. 6 tegn)" style="width:100%;margin-bottom:8px">
+      <button class="primary" id="btnSetNewPass">Gem ny adgangskode</button>
+      <div class="hint" id="resetMsg" style="margin-top:8px"></div>
     </div>
 
     <div class="panel" id="cloudAccount" style="display:none">
@@ -1307,11 +1319,27 @@ function extractChords(body){
 }
 function isKnownShape(ch){return !!CHORD_SHAPES[ch];}
 
+let favorites=new Set();
+function isFav(id){return favorites.has(id);}
+function toggleFav(id){
+  if(favorites.has(id))favorites.delete(id);else favorites.add(id);
+  lsSave({favorites:[...favorites]});
+  if(SB.user)syncFavoritesUp();
+  renderSongList();
+}
+function songItemHTML(s,chords){
+  const fav=isFav(s.id);
+  return '<div class="songitem" data-id="'+s.id+'">'
+    +'<span class="si-star'+(fav?' on':'')+'" data-fav="'+s.id+'">'+(fav?'★':'☆')+'</span>'
+    +'<div class="si-main"><div class="si-title">'+s.title+'</div><div class="si-sub">'+s.meta+'</div></div>'
+    +'<div class="si-chords">'+chords.slice(0,5).join(' ')+'</div>'
+    +'<div class="si-diff '+(s.diff==='let'?'let':'mel')+'">'+(s.diff==='let'?'let':'øvet')+'</div></div>';
+}
 function renderSongList(){
   const q=$('songSearch').value.toLowerCase(),filt=$('songFilter').value;
   const all=[...SONGS,...userSongs];
   const cats={dansk:'Danske',jul:'Jul & salmer',intl:'Internationale',mine:'Mine importerede'};
-  const groups={};
+  const groups={},favList=[];
   all.forEach(s=>{
     if(filt==='let'&&s.diff!=='let')return;
     if(filt==='dansk'&&s.cat!=='dansk')return;
@@ -1319,19 +1347,21 @@ function renderSongList(){
     if(filt==='intl'&&s.cat!=='intl')return;
     const chords=extractChords(s.body);
     if(q&&!s.title.toLowerCase().includes(q)&&!chords.join(' ').toLowerCase().includes(q))return;
+    if(isFav(s.id))favList.push({s,chords});
     const cat=s.cat||'mine';(groups[cat]=groups[cat]||[]).push({s,chords});
   });
   let html='';
+  if(favList.length){
+    html+='<div class="songcat">⭐ Favoritter</div>';
+    favList.forEach(({s,chords})=>{html+=songItemHTML(s,chords);});
+  }
   ['dansk','jul','intl','mine'].forEach(cat=>{
     if(!groups[cat])return;
     html+='<div class="songcat">'+(cats[cat]||cat)+'</div>';
-    groups[cat].forEach(({s,chords})=>{
-      html+='<div class="songitem" data-id="'+s.id+'"><div class="si-main"><div class="si-title">'+s.title+'</div><div class="si-sub">'+s.meta+'</div></div>'
-        +'<div class="si-chords">'+chords.slice(0,5).join(' ')+'</div>'
-        +'<div class="si-diff '+(s.diff==='let'?'let':'mel')+'">'+(s.diff==='let'?'let':'øvet')+'</div></div>';
-    });
+    groups[cat].forEach(({s,chords})=>{html+=songItemHTML(s,chords);});
   });
   $('songList').innerHTML=html||'<div class="hint">Ingen sange matcher.</div>';
+  $('songList').querySelectorAll('.si-star').forEach(el=>el.onclick=ev=>{ev.stopPropagation();toggleFav(el.dataset.fav);});
   $('songList').querySelectorAll('.songitem').forEach(el=>el.onclick=()=>openSong(el.dataset.id));
 }
 
@@ -1456,7 +1486,9 @@ let ghBestStreak=0;
 // restore on boot
 (function restoreLocal(){
   const d=lsLoad();
-  if(d.userSongs&&Array.isArray(d.userSongs)){userSongs=d.userSongs;renderSongList();}
+  if(d.favorites&&Array.isArray(d.favorites)){favorites=new Set(d.favorites);}
+  if(d.userSongs&&Array.isArray(d.userSongs)){userSongs=d.userSongs;}
+  renderSongList();
   if(d.settings){
     if(d.settings.bpm){ghBpm=d.settings.bpm;$('ghBpm').value=ghBpm;$('ghBpmLabel').textContent=ghBpm;$('ghBpmShow').textContent=ghBpm;}
     if(d.settings.beatsPer){ghBeatsPer=d.settings.beatsPer;$('ghBeatsPer').value=ghBeatsPer;}
@@ -1485,28 +1517,66 @@ function initSupabase(){
     if(data.session){SB.user=data.session.user;afterLogin();}
     renderCloudUI();
   });
-  SB.client.auth.onAuthStateChange((_e,session)=>{SB.user=session?session.user:null;if(SB.user)afterLogin();else renderCloudUI();});
+  SB.client.auth.onAuthStateChange((evt,session)=>{
+    if(evt==='PASSWORD_RECOVERY'){recoveryMode=true;SB.user=session?session.user:null;renderCloudUI();return;}
+    SB.user=session?session.user:null;if(SB.user)afterLogin();else renderCloudUI();
+  });
 }
+let recoveryMode=false;
 function renderCloudUI(){
   const hasCfg=!!sbCfg();
-  $('cloudConfig').style.display=hasCfg?'none':'block';
-  $('cloudAuth').style.display=hasCfg&&!SB.user?'block':'none';
-  $('cloudAccount').style.display=SB.user?'block':'none';
-  $('cloudAdmin').style.display=(SB.user&&SB.profile&&SB.profile.role==='admin')?'block':'none';
-  if(SB.user){
+  $('cloudConfig').style.display='none';
+  $('cloudReset').style.display=recoveryMode?'block':'none';
+  $('cloudAuth').style.display=hasCfg&&!SB.user&&!recoveryMode?'block':'none';
+  $('cloudAccount').style.display=SB.user&&!recoveryMode?'block':'none';
+  $('cloudAdmin').style.display=(SB.user&&!recoveryMode&&SB.profile&&SB.profile.role==='admin')?'block':'none';
+  if(SB.user&&!recoveryMode){
     $('accInfo').textContent='Logget ind som '+SB.user.email+(SB.profile?(' · rolle: '+SB.profile.role):'');
     $('micstate').textContent='Sky: '+SB.user.email.split('@')[0];
   }
 }
 $('btnLogin').onclick=async()=>{
   if(!SB.client)return;
+  $('authMsg').textContent='Logger ind…';
   const {error}=await SB.client.auth.signInWithPassword({email:$('authEmail').value.trim(),password:$('authPass').value});
-  $('authMsg').textContent=error?('Fejl: '+error.message):'Logget ind ✓';
+  if(error){
+    if(/email not confirmed/i.test(error.message))$('authMsg').textContent='Din mail er ikke bekræftet endnu — tjek din indbakke for bekræftelseslinket.';
+    else if(/invalid login/i.test(error.message))$('authMsg').textContent='Forkert email eller adgangskode.';
+    else $('authMsg').textContent='Fejl: '+error.message;
+  }else $('authMsg').textContent='Logget ind ✓';
 };
 $('btnSignup').onclick=async()=>{
   if(!SB.client)return;
-  const {error}=await SB.client.auth.signUp({email:$('authEmail').value.trim(),password:$('authPass').value});
-  $('authMsg').textContent=error?('Fejl: '+error.message):'Konto oprettet — tjek evt. din mail for bekræftelse, log derefter ind.';
+  const email=$('authEmail').value.trim(),pass=$('authPass').value;
+  if(!email||!pass){$('authMsg').textContent='Udfyld email og adgangskode.';return;}
+  if(pass.length<6){$('authMsg').textContent='Adgangskoden skal være mindst 6 tegn.';return;}
+  $('authMsg').textContent='Opretter konto…';
+  const {data,error}=await SB.client.auth.signUp({email,password:pass});
+  if(error){$('authMsg').textContent='Fejl: '+error.message;return;}
+  // If email confirmation is OFF, a session is returned immediately
+  if(data.session){$('authMsg').textContent='Konto oprettet og logget ind ✓';}
+  else $('authMsg').textContent='Konto oprettet — bekræft din mail via linket vi har sendt, og log derefter ind.';
+};
+$('btnForgot').onclick=async()=>{
+  if(!SB.client)return;
+  const email=$('authEmail').value.trim();
+  if(!email){$('authMsg').textContent='Skriv din email i feltet ovenfor først, så sender vi et nulstil-link.';return;}
+  $('authMsg').textContent='Sender nulstil-link…';
+  const redirect=window.location.origin+window.location.pathname;
+  const {error}=await SB.client.auth.resetPasswordForEmail(email,{redirectTo:redirect});
+  $('authMsg').textContent=error?('Fejl: '+error.message):('Nulstil-link sendt til '+email+'. Åbn linket i mailen — så kan du vælge ny kode her i appen.');
+};
+$('btnSetNewPass').onclick=async()=>{
+  if(!SB.client)return;
+  const np=$('newPass').value;
+  if(!np||np.length<6){$('resetMsg').textContent='Adgangskoden skal være mindst 6 tegn.';return;}
+  $('resetMsg').textContent='Gemmer…';
+  const {error}=await SB.client.auth.updateUser({password:np});
+  if(error){$('resetMsg').textContent='Fejl: '+error.message;return;}
+  $('resetMsg').textContent='Adgangskode opdateret ✓ — du er nu logget ind.';
+  recoveryMode=false;$('newPass').value='';
+  if(SB.client.auth.getUser){const {data}=await SB.client.auth.getUser();SB.user=data.user;await afterLogin();}
+  renderCloudUI();
 };
 $('btnLogout').onclick=async()=>{if(SB.client){await SB.client.auth.signOut();SB.user=null;SB.profile=null;renderCloudUI();$('micstate').textContent='Mik slukket';}};
 
@@ -1534,7 +1604,7 @@ async function syncDown(){
       $('syncSongs').textContent=songs.length;
     }
     const {data:st}=await SB.client.from('settings').select('data').eq('user_id',SB.user.id).maybeSingle();
-    if(st&&st.data){const d=st.data;if(d.bpm){ghBpm=d.bpm;$('ghBpm').value=ghBpm;$('ghBpmLabel').textContent=ghBpm;$('ghBpmShow').textContent=ghBpm;}if(d.beatsPer){ghBeatsPer=d.beatsPer;$('ghBeatsPer').value=ghBeatsPer;}}
+    if(st&&st.data){const d=st.data;if(d.bpm){ghBpm=d.bpm;$('ghBpm').value=ghBpm;$('ghBpmLabel').textContent=ghBpm;$('ghBpmShow').textContent=ghBpm;}if(d.beatsPer){ghBeatsPer=d.beatsPer;$('ghBeatsPer').value=ghBeatsPer;}if(Array.isArray(d.favorites)){favorites=new Set(d.favorites);lsSave({favorites:d.favorites});renderSongList();}}
     const {data:recs}=await SB.client.from('recordings').select('id');
     if(recs)$('syncRecs').textContent=recs.length;
     $('syncMsg').textContent='Synkroniseret ✓ '+new Date().toLocaleTimeString('da-DK');
@@ -1549,9 +1619,10 @@ async function syncSongUp(song){
 }
 async function syncSettingsUp(){
   if(!SB.user)return;
-  const data={bpm:ghBpm,beatsPer:ghBeatsPer,transpose,lastSong:curSong?curSong.id:null};
+  const data={bpm:ghBpm,beatsPer:ghBeatsPer,transpose,lastSong:curSong?curSong.id:null,favorites:[...favorites]};
   try{await SB.client.from('settings').upsert({user_id:SB.user.id,data},{onConflict:'user_id'});}catch(e){}
 }
+async function syncFavoritesUp(){await syncSettingsUp();}
 $('btnSyncNow').onclick=syncDown;
 $('btnPushLocal').onclick=async()=>{
   if(!SB.user){alert('Log ind først.');return;}
