@@ -503,11 +503,7 @@ I'm gonna let it [C]shine</textarea>
   <!-- CLOUD / SKY -->
   <section class="tab-page" id="page-cloud">
     <div class="panel" id="cloudConfig" style="display:none">
-      <h3>Forbind Supabase</h3>
-      <p class="hint" style="margin-bottom:10px">Indsæt URL og anon-nøgle fra dit Supabase-projekt (Project Settings → API). Gemmes lokalt på denne enhed.</p>
-      <input type="text" id="cfgUrl" placeholder="https://xxxx.supabase.co" style="width:100%;margin-bottom:8px">
-      <input type="text" id="cfgKey" placeholder="anon public key" style="width:100%;margin-bottom:8px">
-      <button class="teal" id="cfgSave">Gem forbindelse</button>
+      <!-- Supabase-forbindelse er hardcodet i koden; denne boks vises ikke. -->
     </div>
 
     <div class="panel" id="cloudAuth" style="display:none">
@@ -1466,8 +1462,12 @@ $('ghBpm').addEventListener('change',persistSettings);
 $('ghBeatsPer').addEventListener('change',persistSettings);
 
 /* ================= SUPABASE SYNC ================= */
+/* Hardcodede credentials — publishable/anon key er beregnet til frontend.
+   RLS i SQL-skemaet er den egentlige sikkerhed. */
+const SB_URL='https://lpalbtbpnhqnbixcnutq.supabase.co';
+const SB_KEY='sb_publishable_eNPz7BmzMfoXNYVfX7DVSQ_q0o2xA_H';
 const SB={client:null,user:null,profile:null};
-function sbCfg(){const d=lsLoad();return d.sbcfg||null;}
+function sbCfg(){return {url:SB_URL,key:SB_KEY};}
 function initSupabase(){
   const cfg=sbCfg();
   if(!cfg||!window.supabase){renderCloudUI();return;}
@@ -1489,11 +1489,6 @@ function renderCloudUI(){
     $('micstate').textContent='Sky: '+SB.user.email.split('@')[0];
   }
 }
-$('cfgSave').onclick=()=>{
-  const url=$('cfgUrl').value.trim(),key=$('cfgKey').value.trim();
-  if(!url||!key){alert('Udfyld både URL og nøgle.');return;}
-  lsSave({sbcfg:{url,key}});initSupabase();
-};
 $('btnLogin').onclick=async()=>{
   if(!SB.client)return;
   const {error}=await SB.client.auth.signInWithPassword({email:$('authEmail').value.trim(),password:$('authPass').value});
