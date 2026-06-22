@@ -1,9 +1,10 @@
 /* Nullers Garage service worker */
-const CACHE = 'guitaroere-v1';
+const CACHE = 'guitaroere-v2';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './favicon.ico',
   './icon-192.png',
   './icon-512.png'
 ];
