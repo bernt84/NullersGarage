@@ -537,14 +537,19 @@ I'm gonna let it [C]shine</textarea>
     </div>
 
     <div class="panel">
+      <h3>📲 Installér app</h3>
+      <div class="hint" id="installHint">Indlæser…</div>
+      <div class="row" style="margin-top:10px"><button id="btnInstall" style="display:none" class="primary">📲 Installér nu</button></div>
+    </div>
+
+    <div class="panel">
       <h3>Status</h3>
       <div class="hint" id="cloudStatus">Lokal-først: alt virker offline og gemmes på enheden. Log ind for at synkronisere mellem enheder og dele i din org.</div>
-      <div class="row" style="margin-top:10px"><button id="btnInstall" style="display:none" class="primary">📲 Installér app</button></div>
     </div>
   </section>
 </main>
 
-<footer>Nullers Garage · lokal-først PWA · valgfri sky-sync via Supabase</footer>
+<footer>Nullers Garage</footer>
 
 <script>
 const NOTE_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
@@ -1577,8 +1582,20 @@ window._afterRecording=async(blob,durationS)=>{
 
 /* ================= PWA ================= */
 let deferredPrompt=null;
-window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;const b=$('btnInstall');if(b)b.style.display='inline-flex';});
-const _bi=$('btnInstall');if(_bi)_bi.onclick=async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;_bi.style.display='none';}};
+function isStandalone(){return window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;}
+function isIOS(){return /iphone|ipad|ipod/i.test(navigator.userAgent);}
+function updateInstallUI(){
+  const hint=$('installHint'),btn=$('btnInstall');if(!hint)return;
+  if(isStandalone()){hint.textContent='✓ Appen er installeret og kører som app.';btn.style.display='none';return;}
+  if(deferredPrompt){hint.textContent='Tryk på knappen for at installere Nullers Garage på din enhed.';btn.style.display='inline-flex';return;}
+  if(isIOS()){hint.innerHTML='På iPhone/iPad: tryk på <b>Del</b>-knappen nederst i Safari (firkant med pil op) → vælg <b>Føj til hjemmeskærm</b>.';btn.style.display='none';return;}
+  hint.innerHTML='Installér: åbn browsermenuen (⋮ oppe i hjørnet) og vælg <b>Installér app</b> / <b>Føj til startskærm</b>. Virker i Chrome og Edge. Hvis valget mangler, så genindlæs siden én gang.';
+  btn.style.display='none';
+}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;updateInstallUI();});
+window.addEventListener('appinstalled',()=>{deferredPrompt=null;updateInstallUI();});
+const _bi=$('btnInstall');if(_bi)_bi.onclick=async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;updateInstallUI();}};
+updateInstallUI();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}
 
 initSupabase();
