@@ -255,6 +255,25 @@
       <div class="stat"><b id="sMiss" style="color:var(--red)">0</b><span>Forbi</span></div>
       <div class="stat"><b id="sAcc" style="color:var(--teal)">–</b><span>Træfsikkerhed</span></div>
     </div>
+    <div class="panel" id="chordPracticePanel">
+      <h3>Øv akkorder <span class="hint" style="margin-left:auto;text-transform:none;letter-spacing:0">slå an og se om den er rigtig</span></h3>
+      <div class="row" style="margin-bottom:10px">
+        <select id="cpSelect"></select>
+        <button class="teal" id="cpSet">Vælg</button>
+        <label class="hint" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="cpAuto"> auto-næste</label>
+      </div>
+      <div class="target" id="cpBox" style="display:none">
+        <div>
+          <div class="tlabel">Spil denne akkord</div>
+          <div class="tnote" id="cpName">–</div>
+          <div class="tpos" id="cpHeard">venter på lyd…</div>
+        </div>
+        <div class="verdict wait" id="cpVerdict" style="margin-left:auto">spil</div>
+      </div>
+      <div id="cpGrip" style="margin-top:10px;text-align:center"></div>
+      <p class="hint" style="margin-top:8px">Vælg en akkord, slå alle strenge klart an. Grøn = rigtig. Husk at mikrofonen skal være tændt (knappen ovenfor). Akkord-genkendelse er en god indikation, ikke en facitliste.</p>
+    </div>
+
     <div class="controls">
       <button class="primary" id="micBtn">🎙️ Start mikrofon</button>
       <button id="restartBtn">↻ Forfra</button>
@@ -751,16 +770,23 @@ function renderSongHighlight(){
 
 function autoCorrelate(b,sr){
   let size=b.length,rms=0;for(let i=0;i<size;i++)rms+=b[i]*b[i];rms=Math.sqrt(rms/size);
-  if(rms<0.01)return-1;
+  if(rms<0.008)return-1;                       // for stille → ingen tone
   let r1=0,r2=size-1,th=0.2;
   for(let i=0;i<size/2;i++)if(Math.abs(b[i])<th){r1=i;break;}
   for(let i=1;i<size/2;i++)if(Math.abs(b[size-i])<th){r2=size-i;break;}
   b=b.slice(r1,r2);size=b.length;
+  if(size<2)return-1;
   const c=new Array(size).fill(0);
   for(let i=0;i<size;i++)for(let j=0;j<size-i;j++)c[i]+=b[j]*b[j+i];
-  let d=0;while(c[d]>c[d+1])d++;let mv=-1,mp=-1;
+  let d=0;while(d<size-1&&c[d]>c[d+1])d++;
+  let mv=-1,mp=-1;
   for(let i=d;i<size;i++)if(c[i]>mv){mv=c[i];mp=i;}
-  let T0=mp;const x1=c[T0-1],x2=c[T0],x3=c[T0+1],a=(x1+x3-2*x2)/2,bb=(x3-x1)/2;if(a)T0=T0-bb/(2*a);
+  if(mp<=0)return-1;
+  // clarity: peak skal være tydeligt stærkere end nul-lag (ellers er det støj)
+  if(c[0]>0 && mv/c[0]<0.5)return-1;
+  const x1=c[mp-1]||0,x2=c[mp],x3=c[mp+1]||0,a=(x1+x3-2*x2)/2,bb=(x3-x1)/2;
+  let T0=mp;if(a)T0=mp-bb/(2*a);
+  if(T0<=0)return-1;
   return sr/T0;
 }
 function detectChroma(){
@@ -774,7 +800,7 @@ function loop(){
   analyser.getFloatTimeDomainData(buf);
   const f=autoCorrelate(buf,audioCtx.sampleRate);
   const activePage=document.querySelector('.tab-page.on').id;
-  if(f>50&&f<1200){
+  if(f>65&&f<1300){
     const info=freqToNote(f);
     if(activePage==='page-play'){
       $('noteNow').innerHTML=info.name.replace('#','<small>#</small>')+'<small>'+info.octave+'</small>';
@@ -783,10 +809,21 @@ function loop(){
       const it=Math.abs(info.cents)<10;n.style.background=it?'var(--lime)':(Math.abs(info.cents)<25?'var(--amber)':'var(--red)');
       $('noteNow').style.color=it?'var(--lime)':'var(--ink)';checkTarget(info);
     }else if(activePage==='page-tuner'){updateTuner(f,info);}
-  }else if(activePage==='page-play'){stableCount=Math.max(0,stableCount-1);}
+    silentFrames=0;
+  }else{
+    silentFrames++;
+    if(activePage==='page-play')stableCount=Math.max(0,stableCount-1);
+    // ingen tydelig tone i et stykke tid → nulstil display så det ikke hænger fast
+    if(silentFrames>15){
+      if(activePage==='page-tuner'){$('tunerNote').textContent='–';$('tunerFreq').textContent='spil en streng';$('tunerVerdict').textContent='—';$('tunerVerdict').style.color='var(--muted)';$('tunerNeedle').style.left='50%';}
+      else if(activePage==='page-play'){$('noteNow').textContent='–';$('freqOut').textContent='vent på lyd…';}
+    }
+  }
   if(activePage==='page-chords'||activePage==='page-groove')detectChordFrame();
+  if(activePage==='page-play'&&cpTarget)detectChordFrame();
   rafId=requestAnimationFrame(loop);
 }
+let silentFrames=0;
 
 function checkTarget(info){
   if(!parsed||idx>=parsed.events.length)return;
@@ -813,6 +850,15 @@ function detectChordFrame(){
   $('chordCands').innerHTML=scored.slice(0,4).filter(x=>x.s>1).map(x=>'<span>'+x.n+'</span>').join('');
   if(best.s>=4 && typeof ghMicChord==='function')ghMicChord(best.n);
   if(chordTarget){const v=$('chordVerdict');if(best.n===chordTarget.n&&best.s>=4){v.className='verdict hit';v.textContent='ramt ✓';}else{v.className='verdict wait';v.textContent='spil '+chordTarget.n;}}
+  if(cpTarget){
+    $('cpHeard').textContent=present.length?('hører: '+present.map(p=>NOTE_NAMES[p]).join(' ')):'venter på lyd…';
+    const v=$('cpVerdict');
+    if(best.n===cpTarget&&best.s>=4){
+      v.className='verdict hit';v.textContent='rigtig ✓';cpStable++;
+      if(cpStable>=5&&$('cpAuto').checked){cpStable=0;cpNextRandom();}
+    }else if(best.s>=3){v.className='verdict sharp';v.textContent=best.n+'?';cpStable=0;}
+    else{v.className='verdict wait';v.textContent='spil '+cpTarget;cpStable=0;}
+  }
 }
 
 const TUNER_STRINGS=[{n:'E',midi:40},{n:'A',midi:45},{n:'D',midi:50},{n:'G',midi:55},{n:'B',midi:59},{n:'e',midi:64}];
@@ -847,17 +893,27 @@ async function startMic(){
     audioCtx=new(window.AudioContext||window.webkitAudioContext)();
     micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,autoGainControl:false,noiseSuppression:false}});
     const src=audioCtx.createMediaStreamSource(micStream);
-    analyser=audioCtx.createAnalyser();analyser.fftSize=4096;
-    buf=new Float32Array(2048);freqData=new Uint8Array(analyser.frequencyBinCount);
+    analyser=audioCtx.createAnalyser();analyser.fftSize=8192;
+    buf=new Float32Array(analyser.fftSize);freqData=new Uint8Array(analyser.frequencyBinCount);
     src.connect(analyser);
+    window._micSrc=src;
+    requestWakeLock();
     $('micdot').classList.add('live');$('micstate').textContent='Lytter…';setMicBtns(true);loop();
   }catch(e){$('micstate').textContent='Mik nægtet';alert('Tillad mikrofon i browseren og prøv igen.');}
 }
+let wakeLock=null;
+async function requestWakeLock(){
+  try{if('wakeLock' in navigator){wakeLock=await navigator.wakeLock.request('screen');}}catch(e){}
+}
+// re-acquire if user returns to the tab
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&micStream&&!wakeLock)requestWakeLock();});
+function releaseWakeLock(){try{if(wakeLock){wakeLock.release();wakeLock=null;}}catch(e){}}
 function stopMic(){
   if(rafId)cancelAnimationFrame(rafId);
   if(mediaRecorder&&mediaRecorder.state==='recording')stopRec();
   if(micStream)micStream.getTracks().forEach(t=>t.stop());
   if(audioCtx)audioCtx.close();audioCtx=null;micStream=null;
+  releaseWakeLock();
   $('micdot').classList.remove('live');$('micstate').textContent='Mik slukket';setMicBtns(false);
   $('noteNow').textContent='–';$('freqOut').textContent='vent på lyd…';
 }
@@ -1468,6 +1524,25 @@ function cleanOcr(raw){
     .join('\n')
     .trim();
 }
+
+/* ---- Akkord-øve i Øvelse-fanen ---- */
+let cpTarget=null,cpStable=0;
+(function buildCpSelect(){
+  const sel=$('cpSelect');if(!sel)return;
+  Object.keys(CHORD_SHAPES).forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);});
+})();
+function cpSetTarget(name){
+  cpTarget=name;cpStable=0;
+  $('cpBox').style.display='flex';$('cpName').textContent=name;
+  $('cpGrip').innerHTML=CHORD_SHAPES[name]?chordSVG(name,120):'';
+  const v=$('cpVerdict');v.className='verdict wait';v.textContent='spil '+name;
+}
+function cpNextRandom(){
+  const keys=Object.keys(CHORD_SHAPES);
+  let n;do{n=keys[Math.floor(Math.random()*keys.length)];}while(n===cpTarget&&keys.length>1);
+  $('cpSelect').value=n;cpSetTarget(n);
+}
+if($('cpSet'))$('cpSet').onclick=()=>cpSetTarget($('cpSelect').value);
 
 buildDiagrams();buildFretboard();staffDemo();
 
